@@ -1,0 +1,74 @@
+import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter_application_1/login/Login.dart';
+import 'package:provider/provider.dart';
+import 'controllers/notification_provider.dart';
+import 'controllers/qr_provider.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_application_1/login/homepage.dart';
+
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(); // Initialize Firebase
+
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => QRProvider()),
+        ChangeNotifierProvider(create: (_) => NotificationProvider()),
+      ],
+      child: MyApp(),
+    ),
+  );
+}
+
+class MyApp extends StatefulWidget {
+  @override
+  _MyAppState createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  final FirebaseMessaging _firebaseMessaging = FirebaseMessaging.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    _setupFirebaseMessaging();
+  }
+
+  void _setupFirebaseMessaging() {
+    // Listen for foreground messages
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      print('Received a message: ${message.messageId}');
+      if (message.notification != null) {
+        print('Message title: ${message.notification!.title}');
+        print('Message body: ${message.notification!.body}');
+        
+        // Notify the provider about the new notification
+        final notificationProvider = Provider.of<NotificationProvider>(context, listen: false);
+        notificationProvider.addNotification(NotificationModel(
+          title: message.notification?.title ?? 'No Title',
+          body: message.notification?.body ?? 'No Body',
+          data: message.data,
+          serverTime: message.data['serverTime'] ?? 'N/A',
+          serverDate: message.data['serverDate'] ?? 'N/A',
+        ));
+      }
+    });
+
+    // Handle messages when the app is opened from the background
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+      print('Message opened: ${message.messageId}');
+      // Handle navigation based on message data if needed
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: Login(), // Change this to the initial screen you want
+    );
+  }
+}

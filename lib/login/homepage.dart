@@ -1,0 +1,1439 @@
+import 'dart:convert';
+import 'dart:async';
+import 'package:http/http.dart' as http;
+import 'package:qr_code_scanner/qr_code_scanner.dart';
+import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_application_1/login/Login.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_application_1/controllers/notification_provider.dart';
+
+void main() {
+  runApp(const MyApp());
+}
+
+void _logout(BuildContext context) async {
+  // Firebase sign out example
+  await FirebaseAuth.instance.signOut();
+
+  // Navigate back to login screen or clear stack
+  Navigator.of(context).popUntil((route) => route.isFirst);
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: homepage(),
+    );
+  }
+}
+
+class homepage extends StatefulWidget {
+  const homepage({super.key});
+
+  @override
+  _MainStateHomepage createState() => _MainStateHomepage();
+}
+
+class _MainStateHomepage extends State<homepage> with TickerProviderStateMixin {
+  int _currentIndex = 1;
+  late List<AnimationController> _controllers;
+  late List<Animation<Offset>> _offsetAnimations;
+
+  final List<Widget> _children = [
+    FarePriceListPage(),
+    QRScannerPage(),
+    NotificationPage(),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _controllers = List.generate(3, (index) {
+      return AnimationController(
+        duration: const Duration(milliseconds: 300),
+        vsync: this,
+      );
+    });
+
+    _offsetAnimations = _controllers.map((controller) {
+      return Tween<Offset>(
+        begin: Offset.zero,
+        end: const Offset(0, -0.1),
+      ).animate(CurvedAnimation(
+        parent: controller,
+        curve: Curves.easeInOut,
+      ));
+    }).toList();
+  }
+
+  @override
+  void dispose() {
+    for (var controller in _controllers) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  void onTabTapped(int index) {
+    setState(() {
+      _currentIndex = index;
+    });
+    _controllers[index].forward().then((_) {
+      _controllers[index].reverse();
+    });
+  }
+
+  Future<void> _logout(BuildContext context) async {
+    try {
+      await FirebaseAuth.instance.signOut(); // Log out from Firebase
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(
+            builder: (context) => Login()), // Replace with your Login page
+        (Route<dynamic> route) => false, // Remove all routes from stack
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to log out. Please try again.'),
+        ),
+      );
+    }
+  }
+
+  void _showEmergencyContacts() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Emergency Contacts'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: const [
+              Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                        text: 'Police: ',
+                        style: TextStyle(fontWeight: FontWeight.normal)),
+                    TextSpan(
+                        text: '0947-347-8094 (SMART)',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              ),
+              Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                        text: 'MDRRMO: ',
+                        style: TextStyle(fontWeight: FontWeight.normal)),
+                    TextSpan(
+                        text: '0920-209-7070 (SMART)',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              ),
+              Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                        text: 'Hospitals: ',
+                        style: TextStyle(fontWeight: FontWeight.normal)),
+                    TextSpan(
+                        text: '(042)-585-4281',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.deepOrange,
+        automaticallyImplyLeading: false,
+        leading: IconButton(
+          icon: Icon(Icons.contact_emergency_sharp),
+          onPressed: _showEmergencyContacts,
+          tooltip: 'Emergency Hotline',
+          color: Colors.white,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => _logout(context),
+            child: Text(
+              'Logout',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+              ),
+            ),
+          ),
+        ],
+      ),
+      body: _children[_currentIndex],
+      bottomNavigationBar: Container(
+        color: Colors.deepOrange,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildNavItem(Icons.money, "Fare Price List", 0),
+              _buildNavItem(Icons.qr_code_scanner_sharp, "QR Scanner", 1),
+              _buildNavItem(
+                  Icons.notifications_active_outlined, "Notification", 2),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNavItem(IconData icon, String label, int index) {
+    return GestureDetector(
+      onTap: () => onTabTapped(index),
+      child: SlideTransition(
+        position: _offsetAnimations[index],
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white,
+                border: Border.all(color: Colors.black, width: 1),
+              ),
+              child: Icon(
+                icon,
+                color:
+                    _currentIndex == index ? Colors.deepOrange : Colors.black,
+              ),
+            ),
+            SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: _currentIndex == index
+                    ? FontWeight.bold
+                    : FontWeight.normal,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class FarePriceListPage extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Container(
+        decoration: BoxDecoration(
+          image: DecorationImage(
+            image: AssetImage('assets/images/municipalhall.jpg'),
+            fit: BoxFit.cover,
+          ),
+        ),
+        child: ListView(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Candelaria Tricycle Fare Matrix',
+                    style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.deepOrange),
+                  ),
+                  Text(
+                    'as of January 2024',
+                    style: TextStyle(
+                        fontSize: 18,
+                        fontStyle: FontStyle.italic,
+                        color: Colors.black),
+                  ),
+                ],
+              ),
+            ),
+            Column(
+              children: [
+                buildZoomableImage(context, 'assets/images/farematrix3.jpg'),
+                SizedBox(height: 16),
+                buildZoomableImage(context, 'assets/images/farematrix4.jpg'),
+                SizedBox(height: 16),
+                buildZoomableImage(context, 'assets/images/farematrix5.jpg'),
+                SizedBox(height: 16),
+                buildZoomableImage(context, 'assets/images/farematrix6.jpg'),
+                SizedBox(height: 16),
+                buildZoomableImage(context, 'assets/images/farematrix7.jpg'),
+                SizedBox(height: 16),
+                buildZoomableImage(context, 'assets/images/farematrix8.jpg'),
+                SizedBox(height: 16),
+                buildZoomableImage(context, 'assets/images/farematrix9.jpg'),
+                SizedBox(height: 16),
+                buildZoomableImage(context, 'assets/images/farematrix10.jpg'),
+                SizedBox(height: 16),
+                buildZoomableImage(context, 'assets/images/farematrix11.jpg'),
+                SizedBox(height: 16),
+                buildZoomableImage(context, 'assets/images/farematrix1.jpg',
+                    scale: 4.4),
+                SizedBox(height: 16),
+                buildZoomableImage(context, 'assets/images/farematrix2.jpg'),
+                SizedBox(height: 16),
+                buildZoomableImage(context, 'assets/images/farematrix12.jpg'),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget buildZoomableImage(BuildContext context, String assetPath,
+      {double scale = 4.0}) {
+    return GestureDetector(
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => ZoomableImageScreen(imagePath: assetPath),
+          ),
+        );
+      },
+      child: Image.asset(assetPath, scale: scale),
+    );
+  }
+}
+
+class ZoomableImageScreen extends StatelessWidget {
+  final String imagePath;
+
+  const ZoomableImageScreen({Key? key, required this.imagePath})
+      : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Center(
+        child: InteractiveViewer(
+          minScale: 1.0,
+          maxScale: 4.0,
+          child: Image.asset(imagePath),
+        ),
+      ),
+    );
+  }
+}
+
+class QRScannerPage extends StatefulWidget {
+  @override
+  _QRScannerPageState createState() => _QRScannerPageState();
+}
+
+class _QRScannerPageState extends State<QRScannerPage> {
+  final GlobalKey qrKey = GlobalKey(debugLabel: 'QR');
+  QRViewController? controller;
+  String scannedData = '';
+  Map<String, dynamic>? driverData;
+  bool isLoading = false;
+
+  int _rating = 0;
+  double _gradedRate = 0.0;
+  int _ratingCount = 0;
+  bool isSubmitDisabled = false;
+
+  // Add Firebase instances
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  String _reporterName = '';
+
+  final TextEditingController _reportController = TextEditingController();
+  Timer? _timer;
+  int _remainingTime = 0;
+
+  @override
+  void dispose() {
+    controller?.dispose();
+    _reportController.dispose();
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  // Add function to get reporter name
+  Future<String> _getReporterName() async {
+    try {
+      final User? user = _auth.currentUser;
+      if (user != null) {
+        final DocumentSnapshot userDoc =
+            await _firestore.collection('users').doc(user.uid).get();
+
+        if (userDoc.exists && userDoc.data() != null) {
+          Map<String, dynamic> userData =
+              userDoc.data() as Map<String, dynamic>;
+          return userData['full_name'] ?? '';
+        }
+      }
+      return '';
+    } catch (e) {
+      print('Error fetching reporter name: $e');
+      return '';
+    }
+  }
+
+  void _onQRViewCreated(QRViewController controller) {
+    this.controller = controller;
+    controller.scannedDataStream.listen((scanData) async {
+      setState(() {
+        scannedData = scanData.code ?? '';
+        print('QR Code scanned: $scannedData');
+      });
+
+      if (scannedData.isNotEmpty) {
+        await fetchDriverData(scannedData);
+      }
+    });
+  }
+
+  Future<void> fetchDriverData(String qrCode) async {
+    setState(() {
+      isLoading = true;
+    });
+    try {
+      final Uri uri = Uri.parse(qrCode);
+      final String id = uri.queryParameters['id'] ?? '';
+
+      if (id.isEmpty) {
+        _showErrorDialog(context, 'Invalid QR code. No ID found.');
+        return;
+      }
+
+      final response = await http.get(
+        Uri.parse('https://triqride.onrender.com/api/list/$id'),
+      );
+
+      if (response.statusCode == 200) {
+        Map<String, dynamic> data = json.decode(response.body);
+
+        String driverName = data['Driver_name'] ?? 'Unknown';
+        String plateNumber = data['Plate_number'].toString();
+        String barangay = data['Barangay'] ?? 'N/A';
+        String imageUrl = data['Image'] ?? '';
+
+        double overallRating = data['overallRating'] is String
+            ? double.tryParse(data['overallRating']) ?? 0.0
+            : (data['overallRating'] ?? 0.0);
+
+        int numberOfViolations = data['totalViolations'] is String
+            ? int.tryParse(data['totalViolations']) ?? 0
+            : (data['totalViolations'] ?? 0);
+
+        int ratingCount = data['ratingCount'] is String
+            ? int.tryParse(data['ratingCount']) ?? 0
+            : (data['ratingCount'] ?? 0);
+
+        driverData = {
+          'id': data['id'].toString(),
+          'Driver_name': driverName,
+          'Plate_number': plateNumber,
+          'Barangay': barangay,
+          'image': imageUrl,
+          'Overall_rating': overallRating,
+          'Violations': numberOfViolations,
+          'Rating_count': ratingCount,
+        };
+
+        await _checkCooldown(driverData!['id']);
+        setState(() {});
+      } else {
+        _showErrorDialog(
+            context, 'Failed to load driver data. Please try again.');
+      }
+    } catch (e) {
+      _showErrorDialog(context, 'Error fetching data: $e');
+    } finally {
+      setState(() {
+        isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _submitReport(String driverId, String report, String plate,
+      String driverName, String barangay, int rating) async {
+    if (report.isEmpty && rating > 0) {
+      print('Submitting only rating without a report');
+    } else if (report.isNotEmpty && rating > 0) {
+      print('Submitting rating with a report, violations will increase');
+    }
+
+    setState(() {
+      isSubmitDisabled = true;
+    });
+
+    String? fcmToken = await getFcmToken();
+    print('FCM Token: $fcmToken');
+
+    // Fetch reporter's name before submitting
+    String reporterName = await _getReporterName();
+    print('Reporter Name: $reporterName'); // Debug print
+
+    final String apiUrl = 'https://triqride.onrender.com/api/report/$driverId';
+
+    final Map<String, String> requestBody = {
+      'plate': plate,
+      'driver': driverName,
+      'brgy': barangay,
+      'report': report,
+      'fcm_token': fcmToken ?? '',
+      'ratings': rating.toString(),
+      'reporter_name': reporterName, // Add reporter's name to request
+    };
+
+    print('Submitting report for Driver ID: $driverId');
+    print('Report data: $requestBody');
+
+    try {
+      final response = await http.post(
+        Uri.parse(apiUrl),
+        headers: <String, String>{'Content-Type': 'application/json'},
+        body: jsonEncode(requestBody),
+      );
+
+      if (response.statusCode == 200) {
+        print('Report and rating submitted successfully');
+        _showSuccessDialog(context);
+
+        final prefs = await SharedPreferences.getInstance();
+        final currentTime = DateTime.now().millisecondsSinceEpoch;
+        await prefs.setInt('lastReportTime_$driverId', currentTime);
+
+        _startCooldownTimer();
+
+        setState(() {
+          isSubmitDisabled = true;
+          driverData = null;
+        });
+      } else {
+        print('Failed to submit, Status Code: ${response.statusCode}');
+        print('Response body: ${response.body}');
+        _showErrorDialog(context, 'Failed to submit report. Please try again.');
+
+        setState(() {
+          isSubmitDisabled = false;
+        });
+      }
+    } catch (e) {
+      print('Error submitting report: $e');
+      _showErrorDialog(context, 'Error submitting report. Please try again.');
+
+      setState(() {
+        isSubmitDisabled = false;
+      });
+    }
+  }
+
+  Future<String?> getFcmToken() async {
+    FirebaseMessaging messaging = FirebaseMessaging.instance;
+    String? token = await messaging.getToken();
+    print('FCM Token obtained: $token'); // Print FCM token
+    return token;
+  }
+
+  Future<void> _checkCooldown(String driverId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final lastReportTime = prefs.getInt('lastReportTime_$driverId') ?? 0;
+
+    final currentTime = DateTime.now().millisecondsSinceEpoch;
+    final timeDifference = currentTime - lastReportTime;
+
+    if (timeDifference < 3 * 60 * 60 * 1000) {
+      setState(() {
+        _remainingTime = (3 * 60 * 60 * 1000 - timeDifference) ~/ 1000;
+      });
+      _startCooldownTimer();
+    } else {
+      _remainingTime = 0;
+    }
+  }
+
+  void _startCooldownTimer() {
+    _timer = Timer.periodic(Duration(seconds: 1), (timer) {
+      setState(() {
+        if (_remainingTime > 0) {
+          _remainingTime--;
+        } else {
+          _timer!.cancel(); // Stop the timer when it reaches 0
+        }
+      });
+    });
+  }
+
+  String _formatRemainingTime() {
+    final hours = _remainingTime ~/ 3600;
+    final minutes = (_remainingTime % 3600) ~/ 60;
+    final seconds = _remainingTime % 60;
+
+    return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+  }
+
+  Future<bool> _canSubmitReport(String driverId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final lastReportTime = prefs.getInt('lastReportTime_$driverId') ?? 0;
+
+    final currentTime = DateTime.now().millisecondsSinceEpoch;
+    final timeDifference = currentTime - lastReportTime;
+
+    // Return true if more than 1 minute has passed
+    return timeDifference > 3 * 60 * 60 * 1000; // 24 hours in milliseconds
+  }
+
+  void _showSuccessDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Success'),
+          content: Text('Your report has been submitted successfully.'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showErrorDialog(BuildContext context, String message) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Error'),
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Stack(
+        children: [
+          driverData == null ? buildQRScanner() : buildDriverDetailsUI(),
+        ],
+      ),
+    );
+  }
+
+  Widget buildQRScanner() {
+    return Stack(
+      children: [
+        QRView(
+          key: qrKey,
+          onQRViewCreated: _onQRViewCreated,
+          overlay: QrScannerOverlayShape(
+            borderColor: Colors.deepOrange,
+            borderRadius: 10,
+            borderLength: 30,
+            borderWidth: 10,
+            cutOutSize: 300,
+          ),
+        ),
+        Center(
+          child: isLoading
+              ? CircularProgressIndicator()
+              : Text(
+                  'Scan a QR code',
+                  style: TextStyle(fontSize: 24, color: Colors.white),
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget buildDriverDetailsUI() {
+    return FutureBuilder<bool>(
+      future: _canSubmitReport(driverData!['id']),
+      builder: (context, snapshot) {
+        final canSubmitReport = snapshot.data ?? false;
+
+        return Stack(
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                image: DecorationImage(
+                  image: AssetImage('assets/images/municipalhall.jpg'),
+                  fit: BoxFit.cover,
+                ),
+              ),
+            ),
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.5),
+              ),
+              child: Column(
+                children: [
+                  AppBar(
+                    leading: IconButton(
+                      icon: Icon(Icons.arrow_back),
+                      onPressed: () {
+                        setState(() {
+                          driverData = null; // Reset to scanning mode
+                        });
+                      },
+                    ),
+                    backgroundColor: Colors.transparent,
+                    elevation: 0,
+                  ),
+                  SizedBox(height: 16),
+                  // Driver Image
+                  CircleAvatar(
+                    radius: 80,
+                    backgroundColor: Colors
+                        .grey[300], // Add background color for placeholder
+                    backgroundImage: driverData?['image'] != null &&
+                            driverData!['image'].isNotEmpty
+                        ? NetworkImage(driverData!['image'])
+                        : AssetImage('assets/images/placeholder.jpg')
+                            as ImageProvider,
+                  ),
+                  SizedBox(height: 16),
+                  // Driver Name
+                  Center(
+                    child: RichText(
+                      textAlign: TextAlign.center, // Center-aligns the text
+                      text: TextSpan(
+                        text: 'Franchise Owner: ',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.deepOrange,
+                        ),
+                        children: [
+                          TextSpan(
+                            text: driverData?['Driver_name'] ?? 'Unknown',
+                            style: TextStyle(
+                              color: driverData?['Driver_name'] != null
+                                  ? Colors.white
+                                  : Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: 10),
+                  // Overall Rating and Count Display
+                  if (driverData?['Overall_rating'] != null &&
+                      driverData?['Rating_count'] != null)
+                    RichText(
+                      text: TextSpan(
+                        text: 'Overall Rating: ',
+                        style:
+                            TextStyle(fontSize: 18, color: Colors.deepOrange),
+                        children: [
+                          WidgetSpan(
+                            child: Icon(
+                              Icons.star, // Star icon
+                              color: Colors.yellow, // Star color
+                              size: 18, // Icon size to match text
+                            ),
+                          ),
+                          TextSpan(
+                            text:
+                                ' ${driverData!['Overall_rating'].toStringAsFixed(2)} / ',
+                            style: TextStyle(fontSize: 18, color: Colors.white),
+                          ),
+                          TextSpan(
+                            text: '(${driverData!['Rating_count']})',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white, // Highlight color
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  SizedBox(height: 30),
+                  // Barangay
+                  RichText(
+                    text: TextSpan(
+                      text: 'Barangay: ',
+                      style: TextStyle(fontSize: 18, color: Colors.deepOrange),
+                      children: <TextSpan>[
+                        TextSpan(
+                          text: '${driverData?['Barangay'] ?? 'N/A'}',
+                          style: TextStyle(
+                            fontWeight:
+                                FontWeight.bold, // Highlighted text is bold
+                            color: Colors.white, // Choose a highlight color
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Franchise Plate Number
+                  RichText(
+                    text: TextSpan(
+                      text: 'Franchise: ',
+                      style: TextStyle(fontSize: 18, color: Colors.deepOrange),
+                      children: <TextSpan>[
+                        TextSpan(
+                          text: '${driverData?['Plate_number'] ?? 'N/A'}',
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold, color: Colors.white),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Number of Violations Display
+                  if (driverData?['Violations'] != null)
+                    Text(
+                      '(Number of Violations: ${driverData!['Violations']})',
+                      style: TextStyle(fontSize: 18, color: Colors.white),
+                    ),
+                  SizedBox(height: 32),
+
+                  // Report submission disabled message
+                  if (!canSubmitReport)
+                    Center(
+                      child: Text(
+                        'Report submission disabled for 3 hours\nRemaining time: ${_formatRemainingTime()}',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    ),
+
+                  SizedBox(height: 16),
+                  // Report button
+                  ElevatedButton(
+                    onPressed: !isSubmitDisabled && canSubmitReport
+                        ? () {
+                            _showReportDialog(context);
+                          }
+                        : null, // Disable button if already submitted or cooldown is active
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.report_problem, size: 20),
+                        SizedBox(width: 4),
+                        Text(
+                          'Leave a Report',
+                          style: TextStyle(fontSize: 18, color: Colors.white),
+                        ),
+                      ],
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.deepOrange,
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor: Colors.grey,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showReportDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          // To manage state inside the dialog
+          builder: (context, setState) {
+            return AlertDialog(
+              title: Text('Leave a Report'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Note or instructions with icon
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        color: Colors.blueAccent,
+                        size: 20,
+                      ),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          "Only Leave a Report if there's an incident that occurred.",
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.black54,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 16),
+                  // Report Text Field
+                  TextField(
+                    controller: _reportController,
+                    decoration:
+                        InputDecoration(hintText: 'Describe the incident'),
+                  ),
+                  SizedBox(height: 16),
+                  // Rating section
+                  Text(
+                    'Rate Tricycle Driver',
+                    style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.deepOrange),
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(5, (index) {
+                      return GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _rating = index + 1;
+                          });
+                        },
+                        child: Icon(
+                          index < _rating ? Icons.star : Icons.star_border,
+                          size: 24,
+                          color: index < _rating ? Colors.yellow : Colors.grey,
+                        ),
+                      );
+                    }),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    _reportController.clear();
+                    Navigator.of(context).pop();
+                  },
+                  child: Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    String reportText = _reportController.text;
+
+                    // Allow submitting only the rating without a report
+                    if (reportText.isEmpty && _rating == 0) {
+                      _showErrorDialog(
+                          context, 'Please provide a report or a rating.');
+                      return;
+                    }
+
+                    String driverId = driverData?['id'] ?? '';
+                    String plate = driverData?['Plate_number'] ?? 'Unknown';
+                    String driverName =
+                        driverData?['Driver_name'] ?? 'Unknown Driver';
+                    String barangay = driverData?['Barangay'] ?? 'N/A';
+
+                    if (driverId.isEmpty) {
+                      _showErrorDialog(context, 'Driver ID is not available.');
+                      return;
+                    }
+
+                    // Submit the report and rating, even if reportText is empty
+                    _submitReport(driverId, reportText, plate, driverName,
+                        barangay, _rating);
+
+                    _reportController.clear();
+                    Navigator.of(context).pop();
+                  },
+                  child: Text('Submit'),
+                )
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showRatingDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Rating'),
+          content: Text('Thank you for rating this driver.'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class NotificationPage extends StatefulWidget {
+  @override
+  _NotificationPageState createState() => _NotificationPageState();
+}
+
+class _NotificationPageState extends State<NotificationPage> {
+  final FirebaseMessaging _firebaseMessaging = FirebaseMessaging.instance;
+  final FlutterLocalNotificationsPlugin _flutterLocalNotificationsPlugin =
+      FlutterLocalNotificationsPlugin();
+  final ScrollController _scrollController = ScrollController();
+  bool _isRefreshing = false;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Request permission for iOS
+    _firebaseMessaging.requestPermission().then((settings) {
+      if (settings.authorizationStatus == AuthorizationStatus.denied) {
+        print('User denied notification permissions.');
+      } else {
+        print('Notification permission granted!');
+      }
+    });
+
+    // Initialize local notifications
+    _createNotificationChannel();
+    _initializeLocalNotifications();
+
+    // Listen for Firebase messages when the app is in the foreground
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      print('Foreground Message received: ${message.messageId}');
+      if (message.notification != null) {
+        print('Message title: ${message.notification!.title}');
+        print('Message body: ${message.notification!.body}');
+        _showNotification(message.notification, message.data);
+      } else {
+        print('Received a message without a notification');
+      }
+    });
+
+    // Handle notifications when the app is launched from a terminated state
+    FirebaseMessaging.instance
+        .getInitialMessage()
+        .then((RemoteMessage? message) {
+      if (message != null) {
+        print(
+            'App launched from terminated state with message: ${message.messageId}');
+        _handleNotificationNavigation(message.data);
+      } else {
+        print('No initial message received when app launched.');
+      }
+    });
+
+    // Handle notifications when the app is opened from the background
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+      print('Message clicked/opened: ${message.messageId}');
+      _handleNotificationNavigation(message.data);
+    });
+
+    // Add scroll listener for refresh detection
+    _scrollController.addListener(() {
+      final notificationProvider =
+          Provider.of<NotificationProvider>(context, listen: false);
+      notificationProvider.autoRefresh(_scrollController);
+    });
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  // Function to create a notification channel
+  void _createNotificationChannel() async {
+    const AndroidNotificationChannel channel = AndroidNotificationChannel(
+      'notifications_channel_001',
+      'App Notifications',
+      description: 'This channel is used for app notifications.',
+      importance: Importance.max,
+    );
+
+    await _flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(channel);
+
+    print('Notification channel created successfully');
+  }
+
+  // Function to initialize local notifications
+  void _initializeLocalNotifications() {
+    const AndroidInitializationSettings initializationSettingsAndroid =
+        AndroidInitializationSettings('app_icon');
+
+    const InitializationSettings initializationSettings =
+        InitializationSettings(
+      android: initializationSettingsAndroid,
+      iOS: IOSInitializationSettings(),
+    );
+
+    _flutterLocalNotificationsPlugin.initialize(initializationSettings,
+        onSelectNotification: (String? payload) async {
+      if (payload != null) {
+        // Decode and handle notification payload
+        Map<String, dynamic> data = jsonDecode(payload);
+        print('Notification payload received: $data');
+        _handleNotificationNavigation(data); // Navigates to NotificationPage
+      } else {
+        print('No payload received with notification');
+        // Directly navigate to NotificationPage if payload is null
+        Navigator.pushNamed(context, '/notificationPage');
+      }
+    });
+    print('Local notifications initialized successfully');
+  }
+
+  // Function to show notifications
+  Future<void> _showNotification(
+      RemoteNotification? notification, Map<String, dynamic> data) async {
+    if (notification == null) {
+      print('No notification to show');
+      return;
+    }
+
+    // You can now handle serverDate and serverTime passed from the backend
+    String serverTime = data['serverTime'] ?? 'Unknown Time';
+    String serverDate = data['serverDate'] ?? 'Unknown Date';
+
+    const AndroidNotificationDetails androidPlatformChannelSpecifics =
+        AndroidNotificationDetails(
+      'notifications_channel_001',
+      'App Notifications',
+      importance: Importance.max,
+      priority: Priority.high,
+      playSound: true,
+      icon: 'app_icon',
+      color: Color(0xFFFFA500),
+    );
+
+    const NotificationDetails platformChannelSpecifics = NotificationDetails(
+      android: androidPlatformChannelSpecifics,
+      iOS: IOSNotificationDetails(),
+    );
+
+    int notificationId = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+    try {
+      await _flutterLocalNotificationsPlugin.show(
+        notificationId,
+        notification.title ?? 'No Title',
+        notification.body ?? 'No Body',
+        platformChannelSpecifics,
+        payload: jsonEncode(data), // Pass the entire data object
+      );
+      print('Notification displayed: ${notification.title}');
+    } catch (e) {
+      print('Error showing notification: $e');
+    }
+  }
+
+  void _handleNotificationNavigation(Map<String, dynamic> data) {
+    if (!data.containsKey('icon')) {
+      data['icon'] =
+          data['attended'] == 'false' ? 'absence_icon' : 'attendance_icon';
+    } else if (!data.containsKey('icon')) {
+      data['icon'] =
+          data['attended'] == 'false' ? 'absence_icon' : 'attendance_icon';
+    }
+    print('Navigating based on notification data: $data');
+    Navigator.pushNamed(context, '/notificationPage', arguments: data);
+  }
+
+  Widget NotificationCard(NotificationModel notification) {
+    print('Notification data received: ${notification.data}');
+    IconData icon;
+    Color iconColor;
+
+    // Determine icon based on the 'icon' data field
+    if (notification.data['icon'] == 'attendance_icon') {
+      icon = Icons.check_circle;
+      iconColor = Colors.green;
+    } else if (notification.data['icon'] == 'absence_icon') {
+      icon = Icons.cancel_outlined;
+      iconColor = Colors.red;
+    } else {
+      icon = Icons.send;
+      iconColor = Colors.orange;
+    }
+
+    return Card(
+      margin: EdgeInsets.symmetric(vertical: 4.0, horizontal: 8.0),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      child: ListTile(
+        leading: Icon(icon, color: iconColor),
+        title: Text(
+          notification.title,
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(notification.body),
+            SizedBox(height: 4),
+            Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(
+                      text: 'Date: ', style: TextStyle(color: Colors.black)),
+                  TextSpan(
+                      text: notification.serverDate,
+                      style: TextStyle(color: Colors.red)),
+                  TextSpan(
+                      text: '  |  Time: ',
+                      style: TextStyle(color: Colors.black)),
+                  TextSpan(
+                      text: notification.serverTime,
+                      style: TextStyle(color: Colors.red)),
+                ],
+              ),
+              style: TextStyle(fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _clearAllNotifications() async {
+    final notificationProvider =
+        Provider.of<NotificationProvider>(context, listen: false);
+
+    // Show confirmation dialog
+    bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Clear All Notifications'),
+          content: Text(
+              'Are you sure you want to clear all notifications? This cannot be undone.'),
+          actions: <Widget>[
+            TextButton(
+              child: Text('Cancel'),
+              onPressed: () => Navigator.of(context).pop(false),
+            ),
+            TextButton(
+              child: Text('Clear All'),
+              onPressed: () => Navigator.of(context).pop(true),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed ?? false) {
+      try {
+        setState(() {
+          _isRefreshing = true;
+        });
+
+        // Clear notifications from provider
+        await notificationProvider.clearAllNotifications();
+
+        // Show success message
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('All notifications cleared successfully'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      } catch (e) {
+        // Show error message if clearing fails
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to clear notifications: $e'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      } finally {
+        setState(() {
+          _isRefreshing = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final notificationProvider = Provider.of<NotificationProvider>(context);
+    final groupedNotifications = notificationProvider.groupedNotifications;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Clear Notification Button'),
+        actions: [
+          // Only show clear button if there are notifications
+          if (groupedNotifications.isNotEmpty)
+            IconButton(
+              icon: Icon(Icons.clear_all),
+              onPressed: _clearAllNotifications,
+              tooltip: 'Clear All Notifications',
+            ),
+        ],
+      ),
+      body: Container(
+        decoration: BoxDecoration(
+          image: DecorationImage(
+            image: AssetImage('assets/images/municipalhall.jpg'),
+            fit: BoxFit.cover,
+          ),
+        ),
+        child: groupedNotifications.isEmpty
+            ? Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.notifications_off_outlined,
+                      size: 64,
+                      color: Colors.grey,
+                    ),
+                    SizedBox(height: 16),
+                    Text(
+                      'No notifications',
+                      style: TextStyle(
+                        fontSize: 18,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : ScrollbarTheme(
+                data: ScrollbarThemeData(
+                  thumbColor: WidgetStateProperty.all(Colors.blue),
+                  trackColor: WidgetStateProperty.all(Colors.grey.shade300),
+                  radius: Radius.circular(8),
+                  thickness: WidgetStateProperty.all(6.0),
+                ),
+                child: RefreshIndicator(
+                  onRefresh: () async {
+                    setState(() {
+                      _isRefreshing = true;
+                    });
+                    try {
+                      await notificationProvider.refreshAndCleanNotifications();
+                    } finally {
+                      setState(() {
+                        _isRefreshing = false;
+                      });
+                    }
+                  },
+                  child: Scrollbar(
+                    controller: _scrollController,
+                    thumbVisibility: false,
+                    radius: Radius.circular(8),
+                    thickness: 6.0,
+                    child: ListView(
+                      controller: _scrollController,
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: [
+                        if (_isRefreshing)
+                          Container(
+                            padding: EdgeInsets.all(8.0),
+                            alignment: Alignment.center,
+                            child: CircularProgressIndicator(),
+                          ),
+                        ...groupedNotifications.entries.map((entry) {
+                          final date = entry.key;
+                          final notificationsForDate = entry.value;
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.all(8.0),
+                                child: Text(
+                                  date,
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16),
+                                ),
+                              ),
+                              ...notificationsForDate
+                                  .map((notification) =>
+                                      NotificationCard(notification))
+                                  .toList(),
+                            ],
+                          );
+                        }).toList(),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+      ),
+    );
+  }
+}
+
+class NotificationModel {
+  final String title;
+  final String body;
+  final Map<String, dynamic> data;
+  final String serverTime;
+  final String serverDate;
+
+  NotificationModel({
+    required this.title,
+    required this.body,
+    required this.data,
+    required this.serverTime,
+    required this.serverDate,
+  });
+}

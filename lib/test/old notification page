@@ -1,0 +1,278 @@
+class NotificationPage extends StatefulWidget {
+  @override
+  _NotificationPageState createState() => _NotificationPageState();
+}
+
+class _NotificationPageState extends State<NotificationPage> {
+  final FirebaseMessaging _firebaseMessaging = FirebaseMessaging.instance;
+  final FlutterLocalNotificationsPlugin _flutterLocalNotificationsPlugin =
+      FlutterLocalNotificationsPlugin();
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Request permission for iOS
+    _firebaseMessaging.requestPermission().then((settings) {
+      if (settings.authorizationStatus == AuthorizationStatus.denied) {
+        print('User denied notification permissions.');
+      } else {
+        print('Notification permission granted!');
+      }
+    });
+
+    // Initialize local notifications
+    _createNotificationChannel();
+    _initializeLocalNotifications();
+
+    // Listen for Firebase messages when the app is in the foreground
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      print('Foreground Message received: ${message.messageId}');
+      if (message.notification != null) {
+        print('Message title: ${message.notification!.title}');
+        print('Message body: ${message.notification!.body}');
+        _showNotification(message.notification, message.data);
+      } else {
+        print('Received a message without a notification');
+      }
+    });
+
+    // Handle notifications when the app is launched from a terminated state
+    FirebaseMessaging.instance
+        .getInitialMessage()
+        .then((RemoteMessage? message) {
+      if (message != null) {
+        print(
+            'App launched from terminated state with message: ${message.messageId}');
+        _handleNotificationNavigation(message.data);
+      } else {
+        print('No initial message received when app launched.');
+      }
+    });
+
+    // Handle notifications when the app is opened from the background
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+      print('Message clicked/opened: ${message.messageId}');
+      _handleNotificationNavigation(message.data);
+    });
+  }
+
+  // Function to create a notification channel
+  void _createNotificationChannel() async {
+    const AndroidNotificationChannel channel = AndroidNotificationChannel(
+      'notifications_channel_001',
+      'App Notifications',
+      description: 'This channel is used for app notifications.',
+      importance: Importance.max,
+    );
+
+    await _flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(channel);
+
+    print('Notification channel created successfully');
+  }
+
+  // Function to initialize local notifications
+  void _initializeLocalNotifications() {
+    const AndroidInitializationSettings initializationSettingsAndroid =
+        AndroidInitializationSettings('app_icon');
+
+    const InitializationSettings initializationSettings =
+        InitializationSettings(
+      android: initializationSettingsAndroid,
+      iOS: IOSInitializationSettings(),
+    );
+
+    _flutterLocalNotificationsPlugin.initialize(initializationSettings,
+        onSelectNotification: (String? payload) async {
+      if (payload != null) {
+        // Decode and handle notification payload
+        Map<String, dynamic> data = jsonDecode(payload);
+        print('Notification payload received: $data');
+        _handleNotificationNavigation(data);
+      } else {
+        print('No payload received with notification');
+      }
+    });
+    print('Local notifications initialized successfully');
+  }
+
+  // Function to show notifications
+  Future<void> _showNotification(
+      RemoteNotification? notification, Map<String, dynamic> data) async {
+    if (notification == null) {
+      print('No notification to show');
+      return;
+    }
+
+    // You can now handle serverDate and serverTime passed from the backend
+    String serverTime = data['serverTime'] ?? 'Unknown Time';
+    String serverDate = data['serverDate'] ?? 'Unknown Date';
+
+    const AndroidNotificationDetails androidPlatformChannelSpecifics =
+        AndroidNotificationDetails(
+      'notifications_channel_001',
+      'App Notifications',
+      importance: Importance.max,
+      priority: Priority.high,
+      playSound: true,
+      icon: 'app_icon',
+      color: Color(0xFFFFA500),
+    );
+
+    const NotificationDetails platformChannelSpecifics = NotificationDetails(
+      android: androidPlatformChannelSpecifics,
+      iOS: IOSNotificationDetails(),
+    );
+
+    int notificationId = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+    try {
+      await _flutterLocalNotificationsPlugin.show(
+        notificationId,
+        notification.title ?? 'No Title',
+        notification.body ?? 'No Body',
+        platformChannelSpecifics,
+        payload: jsonEncode(data), // Pass the entire data object
+      );
+      print('Notification displayed: ${notification.title}');
+    } catch (e) {
+      print('Error showing notification: $e');
+    }
+  }
+
+  void _handleNotificationNavigation(Map<String, dynamic> data) {
+    if (!data.containsKey('icon')) {
+        data['icon'] = data['attended'] == 'false' ? 'absence_icon' : 'attendance_icon';
+    } else if (!data.containsKey('icon')) {
+        data['icon'] = data['attended'] == 'false' ? 'absence_icon' : 'attendance_icon';
+    }
+    print('Navigating based on notification data: $data');
+    Navigator.pushNamed(context, '/reportScreen', arguments: data);
+  }
+
+  Widget NotificationCard(NotificationModel notification) {
+    print('Notification data received: ${notification.data}');
+    IconData icon;
+    Color iconColor;
+
+    // Determine icon based on the 'icon' data field
+    if (notification.data['icon'] == 'attendance_icon') {
+      icon = Icons.check_circle;
+      iconColor = Colors.green;
+    } else if (notification.data['icon'] == 'absence_icon') {
+      icon = Icons
+          .cancel_outlined; // Changed from Icons.cancel to Icons.cancel_outlined
+      iconColor = Colors.red;
+    } else {
+      icon = Icons.send;
+      iconColor = Colors.orange;
+    }
+
+    return Card(
+      margin: EdgeInsets.symmetric(vertical: 4.0, horizontal: 8.0),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      child: ListTile(
+        leading: Icon(icon, color: iconColor),
+        title: Text(
+          notification.title,
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(notification.body),
+            SizedBox(height: 4),
+            Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(
+                      text: 'Date: ', style: TextStyle(color: Colors.black)),
+                  TextSpan(
+                      text: notification.serverDate,
+                      style: TextStyle(color: Colors.red)),
+                  TextSpan(
+                      text: '  |  Time: ',
+                      style: TextStyle(color: Colors.black)),
+                  TextSpan(
+                      text: notification.serverTime,
+                      style: TextStyle(color: Colors.red)),
+                ],
+              ),
+              style: TextStyle(fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget build(BuildContext context) {
+  final notificationProvider = Provider.of<NotificationProvider>(context);
+  final groupedNotifications = notificationProvider.groupedNotifications;
+
+  return Scaffold(
+    body: Container(
+      decoration: BoxDecoration(
+        image: DecorationImage(
+          image: AssetImage('assets/images/municipalhall.jpg'),
+          fit: BoxFit.cover,
+        ),
+      ),
+      child: ScrollbarTheme(
+        data: ScrollbarThemeData(
+          thumbColor: WidgetStateProperty.all(Colors.blue), // New usage with WidgetStateProperty
+          trackColor: WidgetStateProperty.all(Colors.grey.shade300),
+          radius: Radius.circular(8), // Optional: round edges of the thumb
+          thickness: WidgetStateProperty.all(6.0), // Width of the scrollbar
+        ),
+      child: Scrollbar( 
+        thumbVisibility: false, 
+        radius: Radius.circular(8), 
+        thickness: 6.0, 
+        child: ListView(
+          children: groupedNotifications.entries.map((entry) {
+            final date = entry.key;
+            final notificationsForDate = entry.value;
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Text(
+                    date, 
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                ),
+                ...notificationsForDate
+                    .map((notification) => NotificationCard(notification))
+                    .toList(),
+              ],
+            );
+          }).toList(),
+        ),
+      ),
+    )
+  )
+  );
+  }
+}
+
+class NotificationModel {
+  final String title;
+  final String body;
+  final Map<String, dynamic> data;
+  final String serverTime;
+  final String serverDate;
+
+  NotificationModel({
+    required this.title,
+    required this.body,
+    required this.data,
+    required this.serverTime,
+    required this.serverDate,
+  });
+}

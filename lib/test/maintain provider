@@ -1,0 +1,52 @@
+import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_application_1/login/homepage.dart';
+import 'dart:convert';
+
+class NotificationProvider with ChangeNotifier {
+  final List<NotificationModel> _notifications = [];
+
+  List<NotificationModel> get notifications => _notifications;
+
+  NotificationProvider() {
+    // Load saved notifications when the provider is created
+    loadNotifications();
+  }
+
+  void addNotification(NotificationModel notification) {
+    _notifications.add(notification);
+    saveNotifications(); // Save to SharedPreferences whenever a new notification is added
+    notifyListeners();
+  }
+
+  Future<void> saveNotifications() async {
+    final prefs = await SharedPreferences.getInstance();
+    List<String> jsonList = _notifications.map((notification) => jsonEncode({
+          'title': notification.title,
+          'body': notification.body,
+          'data': notification.data,
+          'serverTime': notification.serverTime,
+          'serverDate': notification.serverDate,
+        })).toList();
+    await prefs.setStringList('notifications', jsonList);
+  }
+
+  Future<void> loadNotifications() async {
+    final prefs = await SharedPreferences.getInstance();
+    List<String>? jsonList = prefs.getStringList('notifications');
+    if (jsonList != null) {
+      _notifications.clear();
+      _notifications.addAll(jsonList.map((jsonItem) {
+        final data = jsonDecode(jsonItem);
+        return NotificationModel(
+          title: data['title'],
+          body: data['body'],
+          data: Map<String, dynamic>.from(data['data']),
+          serverTime: data['serverTime'],
+          serverDate: data['serverDate'],
+        );
+      }).toList());
+      notifyListeners();
+    }
+  }
+}
