@@ -1,17 +1,19 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:qr_code_scanner/qr_code_scanner.dart';
 import 'dart:convert';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
+import 'package:http/http.dart' as http;
+import 'package:qr_code_scanner/qr_code_scanner.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 
-class QRScanner extends StatefulWidget {
+class QRScannerPage extends StatefulWidget {
   @override
   _QRScannerPageState createState() => _QRScannerPageState();
 }
 
-class _QRScannerPageState extends State<QRScanner> {
+class _QRScannerPageState extends State<QRScannerPage> {
   final GlobalKey qrKey = GlobalKey(debugLabel: 'QR');
   QRViewController? controller;
   String scannedData = '';
@@ -23,6 +25,11 @@ class _QRScannerPageState extends State<QRScanner> {
   int _ratingCount = 0;
   bool isSubmitDisabled = false;
 
+  // Add Firebase instances
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  String _reporterName = '';
+
   final TextEditingController _reportController = TextEditingController();
   Timer? _timer;
   int _remainingTime = 0;
@@ -31,8 +38,29 @@ class _QRScannerPageState extends State<QRScanner> {
   void dispose() {
     controller?.dispose();
     _reportController.dispose();
-    _timer?.cancel(); // Cancel the timer
+    _timer?.cancel();
     super.dispose();
+  }
+
+  // Add function to get reporter name
+  Future<String> _getReporterName() async {
+    try {
+      final User? user = _auth.currentUser;
+      if (user != null) {
+        final DocumentSnapshot userDoc =
+            await _firestore.collection('users').doc(user.uid).get();
+
+        if (userDoc.exists && userDoc.data() != null) {
+          Map<String, dynamic> userData =
+              userDoc.data() as Map<String, dynamic>;
+          return userData['full_name'] ?? '';
+        }
+      }
+      return '';
+    } catch (e) {
+      print('Error fetching reporter name: $e');
+      return '';
+    }
   }
 
   void _onQRViewCreated(QRViewController controller) {
@@ -40,7 +68,7 @@ class _QRScannerPageState extends State<QRScanner> {
     controller.scannedDataStream.listen((scanData) async {
       setState(() {
         scannedData = scanData.code ?? '';
-        print('QR Code scanned: $scannedData'); // Print the scanned QR code
+        print('QR Code scanned: $scannedData');
       });
 
       if (scannedData.isNotEmpty) {
@@ -69,13 +97,11 @@ class _QRScannerPageState extends State<QRScanner> {
       if (response.statusCode == 200) {
         Map<String, dynamic> data = json.decode(response.body);
 
-        // Extract fields from the response
         String driverName = data['Driver_name'] ?? 'Unknown';
         String plateNumber = data['Plate_number'].toString();
         String barangay = data['Barangay'] ?? 'N/A';
         String imageUrl = data['Image'] ?? '';
 
-        // Safely handle overallRating, totalViolations, and ratingCount by converting to appropriate types
         double overallRating = data['overallRating'] is String
             ? double.tryParse(data['overallRating']) ?? 0.0
             : (data['overallRating'] ?? 0.0);
@@ -96,7 +122,7 @@ class _QRScannerPageState extends State<QRScanner> {
           'image': imageUrl,
           'Overall_rating': overallRating,
           'Violations': numberOfViolations,
-          'Rating_count': ratingCount, // New field
+          'Rating_count': ratingCount,
         };
 
         await _checkCooldown(driverData!['id']);
@@ -115,75 +141,78 @@ class _QRScannerPageState extends State<QRScanner> {
   }
 
   Future<void> _submitReport(String driverId, String report, String plate,
-    String driverName, String barangay, int rating) async {
-  if (report.isEmpty && rating > 0) {
-    print('Submitting only rating without a report');
-  } else if (report.isNotEmpty && rating > 0) {
-    print('Submitting rating with a report, violations will increase');
-  }
+      String driverName, String barangay, int rating) async {
+    if (report.isEmpty && rating > 0) {
+      print('Submitting only rating without a report');
+    } else if (report.isNotEmpty && rating > 0) {
+      print('Submitting rating with a report, violations will increase');
+    }
 
-  // Disable the submit button at the start of submission
-  setState(() {
-    isSubmitDisabled = true;
-  });
+    setState(() {
+      isSubmitDisabled = true;
+    });
 
-  String? fcmToken = await getFcmToken();
-  print('FCM Token: $fcmToken');
+    String? fcmToken = await getFcmToken();
+    print('FCM Token: $fcmToken');
 
-  final String apiUrl = 'https://triqride.onrender.com/api/report/$driverId';
+    // Fetch reporter's name before submitting
+    String reporterName = await _getReporterName();
+    print('Reporter Name: $reporterName'); // Debug print
 
-  // Send a request with only the rating if there's no report
-  final Map<String, String> requestBody = {
-    'plate': plate,
-    'driver': driverName,
-    'brgy': barangay,
-    'report': report, // Include the report field if it's not empty
-    'fcm_token': fcmToken ?? '',
-    'ratings': rating.toString(),
-  };
+    final String apiUrl = 'https://triqride.onrender.com/api/report/$driverId';
 
-  print('Submitting report for Driver ID: $driverId');
-  print('Report data: $requestBody');
+    final Map<String, String> requestBody = {
+      'plate': plate,
+      'driver': driverName,
+      'brgy': barangay,
+      'report': report,
+      'fcm_token': fcmToken ?? '',
+      'ratings': rating.toString(),
+      'reporter_name': reporterName, // Add reporter's name to request
+    };
 
-  try {
-    final response = await http.post(
-      Uri.parse(apiUrl),
-      headers: <String, String>{'Content-Type': 'application/json'},
-      body: jsonEncode(requestBody),
-    );
+    print('Submitting report for Driver ID: $driverId');
+    print('Report data: $requestBody');
 
-    if (response.statusCode == 200) {
-      print('Report and rating submitted successfully');
-      _showSuccessDialog(context);
+    try {
+      final response = await http.post(
+        Uri.parse(apiUrl),
+        headers: <String, String>{'Content-Type': 'application/json'},
+        body: jsonEncode(requestBody),
+      );
 
-      final prefs = await SharedPreferences.getInstance();
-      final currentTime = DateTime.now().millisecondsSinceEpoch;
-      await prefs.setInt('lastReportTime_$driverId', currentTime);
+      if (response.statusCode == 200) {
+        print('Report and rating submitted successfully');
+        _showSuccessDialog(context);
 
-      _startCooldownTimer();
+        final prefs = await SharedPreferences.getInstance();
+        final currentTime = DateTime.now().millisecondsSinceEpoch;
+        await prefs.setInt('lastReportTime_$driverId', currentTime);
 
-      setState(() {
-        isSubmitDisabled = true;
-        driverData = null;
-      });
-    } else {
-      print('Failed to submit, Status Code: ${response.statusCode}');
-      print('Response body: ${response.body}');
-      _showErrorDialog(context, 'Failed to submit report. Please try again.');
+        _startCooldownTimer();
+
+        setState(() {
+          isSubmitDisabled = true;
+          driverData = null;
+        });
+      } else {
+        print('Failed to submit, Status Code: ${response.statusCode}');
+        print('Response body: ${response.body}');
+        _showErrorDialog(context, 'Failed to submit report. Please try again.');
+
+        setState(() {
+          isSubmitDisabled = false;
+        });
+      }
+    } catch (e) {
+      print('Error submitting report: $e');
+      _showErrorDialog(context, 'Error submitting report. Please try again.');
 
       setState(() {
         isSubmitDisabled = false;
       });
     }
-  } catch (e) {
-    print('Error submitting report: $e');
-    _showErrorDialog(context, 'Error submitting report. Please try again.');
-
-    setState(() {
-      isSubmitDisabled = false;
-    });
   }
-}
 
   Future<String?> getFcmToken() async {
     FirebaseMessaging messaging = FirebaseMessaging.instance;
@@ -355,31 +384,37 @@ class _QRScannerPageState extends State<QRScanner> {
                   // Driver Image
                   CircleAvatar(
                     radius: 80,
-                    backgroundImage: driverData?['image'] != null
+                    backgroundColor: Colors
+                        .grey[300], // Add background color for placeholder
+                    backgroundImage: driverData?['image'] != null &&
+                            driverData!['image'].isNotEmpty
                         ? NetworkImage(driverData!['image'])
-                        : AssetImage('assets/images/driver1.jpg')
+                        : AssetImage('assets/images/placeholder.jpg')
                             as ImageProvider,
                   ),
                   SizedBox(height: 16),
                   // Driver Name
-                  RichText(
-                    text: TextSpan(
-                      text: 'Franchise Owner: ',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.deepOrange, // "Franchise Owner:" color
-                      ),
-                      children: [
-                        TextSpan(
-                          text: driverData?['Driver_name'] ?? 'Unknown',
-                          style: TextStyle(
-                            color: driverData?['Driver_name'] != null
-                                ? Colors.white
-                                : Colors.white, // Name in deep orange, "Unknown" in white
-                          ),
+                  Center(
+                    child: RichText(
+                      textAlign: TextAlign.center, // Center-aligns the text
+                      text: TextSpan(
+                        text: 'Franchise Owner: ',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.deepOrange,
                         ),
-                      ],
+                        children: [
+                          TextSpan(
+                            text: driverData?['Driver_name'] ?? 'Unknown',
+                            style: TextStyle(
+                              color: driverData?['Driver_name'] != null
+                                  ? Colors.white
+                                  : Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                   SizedBox(height: 10),
@@ -510,6 +545,28 @@ class _QRScannerPageState extends State<QRScanner> {
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // Note or instructions with icon
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        color: Colors.blueAccent,
+                        size: 20,
+                      ),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          "Only Leave a Report if there's an incident that occurred.",
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.black54,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 16),
                   // Report Text Field
                   TextField(
                     controller: _reportController,

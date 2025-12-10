@@ -7,6 +7,7 @@ import 'controllers/notification_provider.dart';
 import 'controllers/qr_provider.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_application_1/login/homepage.dart';
+import './components/Notifcation_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 
@@ -17,7 +18,8 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
   try {
     final prefs = await SharedPreferences.getInstance();
-    List<String> existingNotifications = prefs.getStringList('notifications') ?? [];
+    List<String> existingNotifications =
+        prefs.getStringList('notifications') ?? [];
 
     final notificationData = {
       'title': message.notification?.title ?? 'No Title',
@@ -82,7 +84,8 @@ class _MyAppState extends State<MyApp> {
   void _setupFirebaseMessaging() {
     FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
       if (message.notification != null) {
-        final notificationProvider = Provider.of<NotificationProvider>(context, listen: false);
+        final notificationProvider =
+            Provider.of<NotificationProvider>(context, listen: false);
         notificationProvider.addNotification(NotificationModel(
           title: message.notification?.title ?? 'No Title',
           body: message.notification?.body ?? 'No Body',
@@ -94,7 +97,8 @@ class _MyAppState extends State<MyApp> {
     });
 
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      final notificationProvider = Provider.of<NotificationProvider>(context, listen: false);
+      final notificationProvider =
+          Provider.of<NotificationProvider>(context, listen: false);
       notificationProvider.addNotification(NotificationModel(
         title: message.notification?.title ?? 'No Title',
         body: message.notification?.body ?? 'No Body',
@@ -162,13 +166,14 @@ class _SplashScreenState extends State<SplashScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Image.asset(
-              'assets/images/logologin.png', 
+              'assets/images/logologin.png',
               width: 150,
             ),
             SizedBox(height: 20),
             Text(
               "Welcome to TriQRide Candelaria!",
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.red),
+              style: TextStyle(
+                  fontSize: 24, fontWeight: FontWeight.bold, color: Colors.red),
             ),
             SizedBox(height: 20),
             CircularProgressIndicator(),

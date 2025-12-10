@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter_application_1/controllers/store_service.dart'; 
+import 'package:flutter_application_1/controllers/store_service.dart';
 import 'package:flutter_application_1/controllers/crud_service.dart';
 import 'package:flutter_application_1/login/Sign_up.dart';
 import 'package:flutter_application_1/login/frpass.dart';
 import 'package:flutter_application_1/login/homepage.dart';
-
-
 
 class Login extends StatefulWidget {
   const Login({Key? key}) : super(key: key);
@@ -34,7 +32,8 @@ class _LoginState extends State<Login> {
       User? user = userCredential.user;
 
       if (user == null) {
-        throw FirebaseAuthException(code: 'user-not-found', message: 'User not found.');
+        throw FirebaseAuthException(
+            code: 'user-not-found', message: 'User not found.');
       }
 
       // Check if the user's email is verified
@@ -47,7 +46,8 @@ class _LoginState extends State<Login> {
           builder: (BuildContext context) {
             return AlertDialog(
               title: Text("Email Verification Required"),
-              content: Text("A verification email has been sent to ${user.email}. Please verify your email before logging in."),
+              content: Text(
+                  "A verification email has been sent to ${user.email}. Please verify your email before logging in."),
               actions: [
                 TextButton(
                   child: Text("OK"),
@@ -66,7 +66,8 @@ class _LoginState extends State<Login> {
       // Fetch and save device token
       String? token = await PushNotifications.getDeviceToken();
       if (token != null) {
-        await CRUDService.saveUserToken(token); // Ensure this method is implemented to save the token
+        await CRUDService.saveUserToken(
+            token); // Ensure this method is implemented to save the token
         print("Device token fetched and saved successfully: $token");
       } else {
         print("Failed to fetch or save device token.");
@@ -75,7 +76,9 @@ class _LoginState extends State<Login> {
       // Show success message and navigate to homepage
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => homepage()), // Ensure this is your correct home page
+        MaterialPageRoute(
+            builder: (context) =>
+                homepage()), // Ensure this is your correct home page
       );
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -122,7 +125,8 @@ class _LoginState extends State<Login> {
       body: SingleChildScrollView(
         child: Center(
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 90.0, horizontal: 15.0),
+            padding:
+                const EdgeInsets.symmetric(vertical: 90.0, horizontal: 15.0),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.center,
